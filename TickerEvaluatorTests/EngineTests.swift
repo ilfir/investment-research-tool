@@ -62,6 +62,13 @@ struct KnownTickerTests {
         #expect(rule(r, "F12")?.status == .fail)
         #expect(r.verdict.verdict == .justBuySP)
         #expect((r.dividends?.trailing12mYield ?? 0) > 0.02)
+        let d = try #require(r.dividends)
+        #expect(d.years.last?.partial == true && d.years.last?.year == 2026)
+        #expect(abs((d.years.first { $0.year == 2025 }?.amount ?? 0) - 1.05) < 0.01)   // split-adjusted
+        #expect(abs((d.growth(years: 5) ?? 0) - 0.091) < 0.005)
+        #expect(d.raises(lastYears: 10).map { $0.raised == 10 && $0.of == 10 } == true)
+        #expect(rule(r, "R2")?.status == .pass)              // physical replication per N-PORT
+        #expect(rule(r, "R3")?.status == .pass)              // quoted yield matches dividends paid
     }
 
     @Test func msft() async throws {
@@ -99,6 +106,12 @@ struct KnownTickerTests {
         let p1 = try #require(rule(r, "P1"))
         #expect(p1.status == .fail)                 // 10% S&P after the buy < 40% floor
         #expect(rule(r, "P2")?.actual.hasPrefix("1") == true)
+        let f = try #require(r.portfolioFit)
+        #expect(f.totalBefore == 9_000 && f.planned == 1_000)
+        #expect(abs(f.spNow) < 1e-9 && abs(f.spAfter - 0.10) < 1e-9 && f.floor == 0.40)
+        #expect(f.allocationAfter.map(\.ticker) == ["MSFT", "VOO"] && f.allocationAfter[1].isCandidate)
+        #expect(abs(f.allocationAfter[0].weight - 0.9) < 1e-9 && f.allocationAfter[0].kind == .stock)
+        #expect((f.overlap ?? 0) > 0.03 && (f.overlap ?? 1) < 0.10)   // MSFT is ~6–7% of VOO
     }
 }
 
@@ -282,6 +295,31 @@ struct ProfileTests {
         let m2 = AppModel(store: store, http: nil)
         await m2.loadProfile()
         #expect(m2.profile == saved)
+    }
+
+    @Test func mutualFundAndCryptoExtras() {
+        // Manager tenure: earliest of Yahoo's start date and the bio's "managed since".
+        let m: [String: Any] = ["managerName": "", "startdate": ["raw": 1744329600.0],
+                                "managerBio": "Jason Weiner is co-manager of the fund, which he has managed since November 2006. He also manages Fidelity funds."]
+        #expect(MutualFundRules.managerStart(m)?.year == 2006)
+        // Custodian: the defined term wins over more frequent mentions of other firms; the cash custodian is skipped.
+        let html = "<p>Kraken Kraken Kraken. The Bank of New York Mellon (the &#8220;Cash Custodian&#8221;) and Fidelity Digital Assets, N.A. (formerly Fidelity Digital Asset Services, LLC) (&#8220;FDA&#8221; or the &#8220;Custodian&#8221;) holds the bitcoin.</p>"
+        #expect(SECClient.custodian(inFiling: html)?.0 == "Fidelity Digital Assets")
+        #expect(SECClient.custodian(inFiling: "<p>Coinbase Custody Trust Company, LLC (the &#8220;Bitcoin Custodian&#8221;)</p>")?.0 == "Coinbase Custody Trust Company")
+    }
+
+    @Test func threeFundReferenceByAge() {
+        #expect(ThreeFund.reference(age: 30)?.nasdaq == 0.45)
+        #expect(ThreeFund.reference(age: 35)?.bonds == 0.20)
+        #expect(ThreeFund.reference(age: 45)?.sp == 0.60)
+        #expect(ThreeFund.reference(age: 50)?.bonds == 0.50)
+        #expect(ThreeFund.reference(age: 72)?.bonds == 0.60)
+        #expect(ThreeFund.reference(age: nil) == nil)
+        for m in ThreeFund.table { #expect(abs(m.sp + m.nasdaq + m.bonds - 1) < 1e-9) }
+        #expect(ThreeFund.sleeve(ticker: "qqqm", kind: .fund) == .nasdaq)
+        #expect(ThreeFund.sleeve(ticker: "FXAIX", kind: .fund) == .sp)
+        #expect(ThreeFund.sleeve(ticker: "XYZ", kind: .bondFund) == .bonds)
+        #expect(Classifier.looksBond("Vanguard Total Bond Market ETF") && !Classifier.looksBond("Schwab US Dividend Equity ETF"))
     }
 
     @Test func profileFeedsPortfolioRules() {

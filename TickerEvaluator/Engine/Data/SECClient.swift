@@ -92,6 +92,51 @@ struct SECClient: Sendable {
         return (d, SourceRef(name: "SEC EDGAR companyfacts (XBRL)", url: url, asOf: nil, fetchedAt: r.fetchedAt))
     }
 
+    /// Custodian named most often in the trust's latest 10-K (spot crypto ETFs are '33 Act grantor trusts).
+    func cryptoCustodian(cik: Int, subs: SECSubmissions) async throws -> (name: String, mentions: Int, source: SourceRef)? {
+        guard let f = subs.filings.first(where: { $0.form == "10-K" }) ?? subs.filings.first(where: { $0.form == "S-1" || $0.form == "424B4" }),
+              !f.primaryDocument.isEmpty else { return nil }
+        let url = archiveURL(cik: cik, f, f.primaryDocument)
+        let r = try await http.get(url, maxAge: Cache.filings * 52)           // filed documents never change
+        guard let (name, mentions) = Self.custodian(inFiling: String(decoding: r.data, as: UTF8.self)) else { return nil }
+        return (name, mentions, SourceRef(name: "SEC EDGAR \(f.form)", url: url, asOf: DateParse.ymd(f.reportDate.isEmpty ? f.filingDate : f.reportDate), fetchedAt: r.fetchedAt))
+    }
+
+    /// The custodian a crypto trust's filing defines as "Custodian" (known names preferred), else the most-mentioned known one.
+    static func custodian(inFiling html: String) -> (String, Int)? {
+        let text = plainText(html)
+        let known = ["Coinbase Custody Trust Company", "Anchorage Digital Bank", "BitGo Trust Company", "Fidelity Digital Assets",
+                     "Fidelity Digital Asset Services", "Gemini Trust Company", "Bank of New York Mellon", "BNY Mellon", "Komainu", "Zodia Custody"]
+        // 1) The custodian the filing defines: `Name, LLC (… "Custodian")` — skips the "Cash Custodian".
+        let pattern = #"([A-Z][A-Za-z&.,' ]{3,90}?)\s*(?:\([^)]{0,90}\)\s*)?\((?:"[^"]{1,20}"\s*or\s*)?(?:in such capacity,\s*)?(?:the\s*)?"(?:Bitcoin |Ether |Ethereum |Prime |Digital Asset )?Custodian"\)"#
+        var defined: [String] = []
+        if let re = try? NSRegularExpression(pattern: pattern) {
+            for m in re.matches(in: text, range: NSRange(text.startIndex..., in: text)) {
+                guard let rg = Range(m.range(at: 1), in: text) else { continue }
+                let raw = String(text[rg])
+                let name = known.first { raw.contains($0) } ?? raw.components(separatedBy: ". ").last!.trimmingCharacters(in: .whitespaces)
+                if !defined.contains(name) { defined.append(name) }
+            }
+        }
+        // Prefer names on the known list; free-text captures can include surrounding words.
+        let knownDefined = defined.filter { known.contains($0) }
+        if !knownDefined.isEmpty { defined = knownDefined } else { defined = defined.filter { $0.count <= 60 } }
+        let mentions = known.map { k in (k, text.components(separatedBy: k).count - 1) }.filter { $0.1 > 0 }.sorted { $0.1 > $1.1 }
+        // 2) Fallback: the known custodian mentioned most often.
+        guard let first = defined.first ?? mentions.first?.0 else { return nil }
+        let name = defined.isEmpty ? first : defined.prefix(3).joined(separator: ", ")
+        return (name, mentions.first { $0.0 == first }?.1 ?? 1)
+    }
+
+    /// HTML → plain text with straight quotes (enough for phrase matching in filings).
+    static func plainText(_ html: String) -> String {
+        var t = html.replacingOccurrences(of: "<[^>]+>", with: " ", options: .regularExpression)
+        for (k, v) in ["&#8220;": "\"", "&#8221;": "\"", "“": "\"", "”": "\"", "&#8217;": "'", "’": "'", "&amp;": "&", "&nbsp;": " ", "&#160;": " ", "&#xa0;": " "] {
+            t = t.replacingOccurrences(of: k, with: v)
+        }
+        return t.replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+    }
+
     func archiveURL(cik: Int, _ f: SECFiling, _ file: String) -> String {
         "https://www.sec.gov/Archives/edgar/data/\(cik)/\(f.accessionNoDashes)/\(file)"
     }

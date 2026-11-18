@@ -5,7 +5,7 @@ import AppKit
 /// Launch modes:
 ///   TickerEvaluator                          → the app window
 ///   TickerEvaluator --evaluate VOO [options] → prints a Markdown report to stdout (engine check, no UI)
-///     --age N  --amount USD  --record DIR (save responses as test fixtures)  --replay DIR (offline from fixtures)
+///     --age N  --amount USD  --position TICKER=USD (repeatable)  --record DIR (save responses as test fixtures)  --replay DIR (offline from fixtures)
 ///     --no-cache  --fresh (ignore saved downloads, keep saving)  --asof YYYY-MM-DD  --snapshot out.png [--dark] (render the report screen to an image)  --pdf out.pdf
 @main
 enum Entry {
@@ -47,7 +47,13 @@ enum CLI {
             if let a = value(args, "--age").flatMap(Int.init) { req.profile.age = a }
             if let a = value(args, "--amount").flatMap(Double.init) { req.profile.plannedAmount = a }
             if let d = value(args, "--asof").flatMap(DateParse.ymd) { req.asOf = d }
-            if let store { req.positions = await store.positions() }
+            // --position TICKER=USD (repeatable) evaluates against these instead of your saved positions.
+            let given = args.indices.filter { args[$0] == "--position" && $0 + 1 < args.count }.compactMap { i -> Position? in
+                let parts = args[i + 1].split(separator: "=")
+                guard parts.count == 2, let v = Double(parts[1]) else { return nil }
+                return Position(ticker: String(parts[0]).uppercased(), amount: v)
+            }
+            if !given.isEmpty { req.positions = given } else if let store { req.positions = await store.positions() }
             let report = try await Evaluator(http: http, store: store).evaluate(req) { msg in
                 FileHandle.standardError.write(Data("… \(msg)\n".utf8))
             }

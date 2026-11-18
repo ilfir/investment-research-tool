@@ -198,18 +198,20 @@ struct WeightBars: View {
 struct OverlapBars: View {
     var ticker: String
     var rows: [(name: String, a: Double, b: Double)]
+    var other = "VOO"
+    var otherColor = Theme.benchmark
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Legend(items: [("Weight in \(ticker)", Theme.asset), ("Weight in VOO", Theme.benchmark)])
+            Legend(items: [("Weight in \(ticker)", Theme.asset), ("Weight in \(other)", otherColor)])
             Chart {
                 ForEach(rows.indices, id: \.self) { i in
                     BarMark(x: .value("Weight", rows[i].a), y: .value("Holding", rows[i].name))
                         .foregroundStyle(by: .value("Fund", ticker)).position(by: .value("Fund", ticker))
                     BarMark(x: .value("Weight", rows[i].b), y: .value("Holding", rows[i].name))
-                        .foregroundStyle(by: .value("Fund", "VOO")).position(by: .value("Fund", "VOO"))
+                        .foregroundStyle(by: .value("Fund", other)).position(by: .value("Fund", other))
                 }
             }
-            .chartForegroundStyleScale([ticker: Theme.asset, "VOO": Theme.benchmark])
+            .chartForegroundStyleScale([ticker: Theme.asset, other: otherColor])
             .chartLegend(.hidden)
             .chartXAxis { AxisMarks { v in AxisGridLine().foregroundStyle(Theme.grid); AxisValueLabel { if let d = v.as(Double.self) { Text(Fmt.pct(d, digits: 0)) } } } }
             .frame(height: CGFloat(rows.count) * 30 + 30)

@@ -8,11 +8,13 @@
 
 /* Begin PBXBuildFile section */
 		19DC3D44F1FC9549E479BBA8 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = FCF829C1F4A035EEFE5E99F9 /* Assets.xcassets */; };
+		21B5E0AADF71894EA4466806 /* RedFlagsCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 784EF49F0CCB293F438520FE /* RedFlagsCard.swift */; };
 		2510238FD9E93AC90C6F1F93 /* TickerEvaluatorApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1F4964B33DBCE1EAFD318384 /* TickerEvaluatorApp.swift */; };
 		28E73505F9B4DDCD6C2FCED8 /* Snapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 47767CB8F2281287DBB9D9E2 /* Snapshot.swift */; };
 		2B0784CE5656E004FF927DC3 /* Verdict.swift in Sources */ = {isa = PBXBuildFile; fileRef = 563C54547B15D818C219F2B6 /* Verdict.swift */; };
 		494AA33605CFBC31F1AA9E73 /* Store.swift in Sources */ = {isa = PBXBuildFile; fileRef = B24534B85491B0F8EB571CB3 /* Store.swift */; };
 		4A3F2B0D53E50E28F1900C11 /* Evaluator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 69A20B8882A4238673519BEA /* Evaluator.swift */; };
+		51F5B5B1DBFA062C4C973601 /* PortfolioFitCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0FD9856C7A6F6EBDD379D05F /* PortfolioFitCard.swift */; };
 		6316AE447EBA284D312EC22A /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F9D65CD143B433322CB15EA4 /* SettingsView.swift */; };
 		671640D836B08AD6E23FCB43 /* ReportCharts.swift in Sources */ = {isa = PBXBuildFile; fileRef = DB2613E14B5B58A094DD655D /* ReportCharts.swift */; };
 		684BE9E72F4F6DF871CCE83E /* RatesClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 26E4AED88D9F2654B67ED609 /* RatesClient.swift */; };
@@ -35,6 +37,8 @@
 		CF98E99470C08CD3E4CAFA96 /* YahooClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 616BA0BE6F9EDEFF2607A749 /* YahooClient.swift */; };
 		D2F0DA5F61697EFB86223B44 /* SECClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 562C54D8549F942241DCF509 /* SECClient.swift */; };
 		DDF41E58FDAF03D550BAAE11 /* Performance.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D25F879958379674FB3CBBB /* Performance.swift */; };
+		E91615543D343D0BE4408483 /* ThreeFundCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 17AAE7C54B39FA485B24A2E6 /* ThreeFundCard.swift */; };
+		ED3D49AA70447DE2E91F60D8 /* DividendCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B379EAB6E2228CD03AA22FE /* DividendCard.swift */; };
 		F7DB0672AA0BD28613CB8BA5 /* PositionsCSV.swift in Sources */ = {isa = PBXBuildFile; fileRef = 89BBBEBE748E67A0253A028B /* PositionsCSV.swift */; };
 /* End PBXBuildFile section */
 
@@ -50,7 +54,9 @@
 
 /* Begin PBXFileReference section */
 		0986D42996A0EEAA3E540DCD /* Theme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Theme.swift; sourceTree = "<group>"; };
+		0FD9856C7A6F6EBDD379D05F /* PortfolioFitCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PortfolioFitCard.swift; sourceTree = "<group>"; };
 		12AF0F0D199FF5452C490CAA /* DataPoint.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DataPoint.swift; sourceTree = "<group>"; };
+		17AAE7C54B39FA485B24A2E6 /* ThreeFundCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThreeFundCard.swift; sourceTree = "<group>"; };
 		1E7DEC4339CAFB1EE0DBC0C7 /* MarkdownReport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownReport.swift; sourceTree = "<group>"; };
 		1F4964B33DBCE1EAFD318384 /* TickerEvaluatorApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TickerEvaluatorApp.swift; sourceTree = "<group>"; };
 		237C959EC7562558545CC289 /* EngineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EngineTests.swift; sourceTree = "<group>"; };
@@ -67,6 +73,8 @@
 		647673D3055209642AC7584F /* HTTPClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HTTPClient.swift; sourceTree = "<group>"; };
 		69A20B8882A4238673519BEA /* Evaluator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Evaluator.swift; sourceTree = "<group>"; };
 		76E58698A3E421BD2BDC38A6 /* CompanyFundamentals.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CompanyFundamentals.swift; sourceTree = "<group>"; };
+		784EF49F0CCB293F438520FE /* RedFlagsCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RedFlagsCard.swift; sourceTree = "<group>"; };
+		7B379EAB6E2228CD03AA22FE /* DividendCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DividendCard.swift; sourceTree = "<group>"; };
 		89BBBEBE748E67A0253A028B /* PositionsCSV.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PositionsCSV.swift; sourceTree = "<group>"; };
 		AB1BB5CB116768B73B9CCC48 /* Exporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Exporter.swift; sourceTree = "<group>"; };
 		B24534B85491B0F8EB571CB3 /* Store.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Store.swift; sourceTree = "<group>"; };
@@ -212,14 +220,18 @@
 			isa = PBXGroup;
 			children = (
 				E55B935B53D769DC80623B80 /* AppModel.swift */,
+				7B379EAB6E2228CD03AA22FE /* DividendCard.swift */,
 				AB1BB5CB116768B73B9CCC48 /* Exporter.swift */,
+				0FD9856C7A6F6EBDD379D05F /* PortfolioFitCard.swift */,
 				F81B1D5F21409D30E1694BD5 /* PositionsView.swift */,
 				D8535967B367C8E2F49B82D4 /* ProfileView.swift */,
+				784EF49F0CCB293F438520FE /* RedFlagsCard.swift */,
 				DB2613E14B5B58A094DD655D /* ReportCharts.swift */,
 				D128C5ECAC57086E02E89652 /* ReportView.swift */,
 				F9D65CD143B433322CB15EA4 /* SettingsView.swift */,
 				47767CB8F2281287DBB9D9E2 /* Snapshot.swift */,
 				0986D42996A0EEAA3E540DCD /* Theme.swift */,
+				17AAE7C54B39FA485B24A2E6 /* ThreeFundCard.swift */,
 			);
 			path = UI;
 			sourceTree = "<group>";
@@ -321,6 +333,7 @@
 				AAAF31E6A053EA52DDFF603E /* AppModel.swift in Sources */,
 				C5950F7B24972644FC4F421F /* CompanyFundamentals.swift in Sources */,
 				B249669C72D260944307999B /* DataPoint.swift in Sources */,
+				ED3D49AA70447DE2E91F60D8 /* DividendCard.swift in Sources */,
 				B370BD7D1686E2D716144FE6 /* Entry.swift in Sources */,
 				4A3F2B0D53E50E28F1900C11 /* Evaluator.swift in Sources */,
 				A002011622F57FBD8413CEA4 /* Exporter.swift in Sources */,
@@ -330,10 +343,12 @@
 				6875CC3C0F7F5ADEF4D86973 /* Models.swift in Sources */,
 				AA442563F203D9BDDD40CA32 /* Overlap.swift in Sources */,
 				DDF41E58FDAF03D550BAAE11 /* Performance.swift in Sources */,
+				51F5B5B1DBFA062C4C973601 /* PortfolioFitCard.swift in Sources */,
 				F7DB0672AA0BD28613CB8BA5 /* PositionsCSV.swift in Sources */,
 				A93521ADD79B6607CF37EEE7 /* PositionsView.swift in Sources */,
 				A860CE4A482441FFB7690773 /* ProfileView.swift in Sources */,
 				684BE9E72F4F6DF871CCE83E /* RatesClient.swift in Sources */,
+				21B5E0AADF71894EA4466806 /* RedFlagsCard.swift in Sources */,
 				671640D836B08AD6E23FCB43 /* ReportCharts.swift in Sources */,
 				B808E0444DF363C502E49FB1 /* ReportView.swift in Sources */,
 				C5FB2536BFCF0E7C27094288 /* Rules.swift in Sources */,
@@ -342,6 +357,7 @@
 				28E73505F9B4DDCD6C2FCED8 /* Snapshot.swift in Sources */,
 				494AA33605CFBC31F1AA9E73 /* Store.swift in Sources */,
 				A83074873C050125E1FC57F8 /* Theme.swift in Sources */,
+				E91615543D343D0BE4408483 /* ThreeFundCard.swift in Sources */,
 				2510238FD9E93AC90C6F1F93 /* TickerEvaluatorApp.swift in Sources */,
 				2B0784CE5656E004FF927DC3 /* Verdict.swift in Sources */,
 				CF98E99470C08CD3E4CAFA96 /* YahooClient.swift in Sources */,

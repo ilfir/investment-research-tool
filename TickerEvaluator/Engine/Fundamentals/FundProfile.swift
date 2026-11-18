@@ -18,6 +18,7 @@ nonisolated struct FundProfile: Sendable {
     var averageVolume: DataPoint?
     var bidAskSpread: DataPoint?
     var distributionYield: DataPoint?
+    var advertisedYield: DataPoint? = nil      // Yahoo's quoted yield, checked against dividends actually paid
     var secYield: DataPoint?               // not available keyless → nil
     var duration: DataPoint?
     var creditQuality: String?
@@ -95,6 +96,7 @@ nonisolated enum FundProfileBuilder {
             p.bidAskSpread = y("spread", "Bid/ask spread", (ask - bid) / ((ask + bid) / 2), .percent)
             p.bidAskSpread?.note = "Snapshot at fetch time; outside market hours it can be stale or wide."
         }
+        if let yl = sd.raw("yield") { p.advertisedYield = y("advYield", "Quoted yield", yl, .percent) }
         if let history {
             let d = DividendInfo.of(history)
             if let ty = d.trailing12mYield {

@@ -195,19 +195,55 @@ nonisolated struct PriceAction: Sendable {
 }
 
 nonisolated struct DividendInfo: Sendable {
+    struct Year: Sendable, Hashable {
+        var year: Int
+        var amount: Double            // dividends per share paid in the calendar year
+        var yield: Double?            // amount / average close that year
+        var payments: Int
+        var partial: Bool             // the current year (not complete yet)
+    }
     var trailing12mYield: Double?
     var byYear: [(year: Int, amount: Double)]
+    var years: [Year] = []
     var paymentsPerYear: Int?
+    var source: SourceRef? = nil
+
+    /// Annualised growth of the yearly dividend over the last `n` complete years.
+    func growth(years n: Int) -> Double? {
+        let full = years.filter { !$0.partial }
+        guard full.count > n, let b = full.last?.amount else { return nil }
+        let a = full[full.count - 1 - n].amount
+        guard a > 0, b > 0 else { return nil }
+        return pow(b / a, 1 / Double(n)) - 1
+    }
+
+    /// In how many of the last `n` complete years the dividend was raised (vs the year before).
+    func raises(lastYears n: Int) -> (raised: Int, of: Int)? {
+        let full = years.filter { !$0.partial }.suffix(n + 1)
+        guard full.count >= 2 else { return nil }
+        let pairs = zip(full.dropLast(), full.dropFirst())
+        return (pairs.filter { $1.amount > $0.amount * 1.0001 }.count, full.count - 1)
+    }
 
     static func of(_ h: PriceHistory) -> DividendInfo {
         guard let end = h.lastDate, let px = h.lastClose else { return DividendInfo(byYear: []) }
-        let yearAgo = Calendar.utc.date(byAdding: .day, value: -365, to: end)!
+        let cal = Calendar.utc
+        let yearAgo = cal.date(byAdding: .day, value: -365, to: end)!
         let last12 = h.dividends.filter { $0.date > yearAgo }
-        var by: [Int: Double] = [:]
-        for d in h.dividends { by[Calendar.utc.component(.year, from: d.date), default: 0] += d.amount }
+        var by: [Int: (Double, Int)] = [:]
+        for d in h.dividends { let y = cal.component(.year, from: d.date); by[y, default: (0, 0)].0 += d.amount; by[y, default: (0, 0)].1 += 1 }
+        var avg: [Int: (Double, Int)] = [:]
+        for (d, c) in zip(h.dates, h.close) { let y = cal.component(.year, from: d); avg[y, default: (0, 0)].0 += c; avg[y, default: (0, 0)].1 += 1 }
+        let endYear = cal.component(.year, from: end)
+        let firstYear = h.dates.first.map { cal.component(.year, from: $0) }
+        let years = by.keys.sorted().map { y -> Year in
+            let a = avg[y].map { $0.0 / Double($0.1) }
+            return Year(year: y, amount: by[y]!.0, yield: a.map { by[y]!.0 / $0 }, payments: by[y]!.1,
+                        partial: y == endYear || y == firstYear)   // first year usually starts mid-year too
+        }
         return DividendInfo(trailing12mYield: last12.isEmpty ? (h.dividends.isEmpty ? 0 : nil) : last12.map(\.amount).reduce(0, +) / px,
-                            byYear: by.sorted { $0.key < $1.key }.map { ($0.key, $0.value) },
-                            paymentsPerYear: last12.isEmpty ? nil : last12.count)
+                            byYear: years.map { ($0.year, $0.amount) }, years: years,
+                            paymentsPerYear: last12.isEmpty ? nil : last12.count, source: h.source)
     }
 }
 

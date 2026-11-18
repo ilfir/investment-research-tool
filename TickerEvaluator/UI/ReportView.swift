@@ -99,6 +99,7 @@ struct ReportContent: View {
     /// The report's sections in order; the PDF export lays these out page by page.
     @MainActor static func sections(_ report: EvaluationReport, model: AppModel?, print: Bool = false) -> [AnyView] {
         var out: [AnyView] = [AnyView(VerdictBanner(r: report)), AnyView(WhyCard(r: report))]
+        if report.assetType != .reit { out.append(AnyView(RedFlagsCard(r: report))) }
         if let p = report.performance {
             if print {
                 out.append(AnyView(PerformanceCard(ticker: report.ticker, perf: p, vsBND: report.performanceVsBND, part: .returns)))
@@ -107,8 +108,11 @@ struct ReportContent: View {
                 out.append(AnyView(PerformanceCard(ticker: report.ticker, perf: p, vsBND: report.performanceVsBND)))
             }
         }
+        out.append(AnyView(PortfolioFitCard(r: report, model: model)))
+        out.append(AnyView(ThreeFundCard(r: report)))
         out.append(AnyView(ScorecardCard(r: report, model: model)))
         if let f = report.fund { out.append(AnyView(FundCard(r: report, fund: f))) }
+        if let d = report.dividends, !d.years.isEmpty || (d.trailing12mYield ?? 0) > 0 { out.append(AnyView(DividendCard(ticker: report.ticker, d: d, isMutualFund: report.sources.contains { $0.name.hasPrefix("Yahoo") } && report.rules.contains { $0.id == "M2" || $0.id == "M1" }))) }
         if let f = report.fundamentals { out.append(AnyView(FinancialsCard(f: f))) }
         out.append(AnyView(DataQualityCard(r: report)))
         return out

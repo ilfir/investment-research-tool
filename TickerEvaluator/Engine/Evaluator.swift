@@ -19,6 +19,7 @@ nonisolated struct EvaluationReport: Sendable {
     var overlapWithSP: Double?
     var overlapCommonWithSP: [(name: String, a: Double, b: Double)]
     var portfolio: PortfolioContext?
+    var portfolioFit: PortfolioFit? = nil
     var checks: [CrossCheck]
     var dataPoints: [DataPoint]
     var sources: [SourceRef]
@@ -156,6 +157,27 @@ struct Evaluator: Sendable {
             fund = profile
             checks += [profile.expenseRatio, profile.netAssets, profile.turnover]
 
+            if history.instrumentType == "MUTUALFUND" {
+                progress?("Manager tenure and taxable distributions…")
+                let voo = try? await yahoo.chart("VOO", asOf: req.asOf)
+                rules += MutualFundRules.evaluate(management: summary?.modules["fundProfile"]?.dict("managementInfo"), managementSource: summary?.source,
+                                                  history: history, vooYield: voo.flatMap { DividendInfo.of($0).trailing12mYield },
+                                                  account: req.profile.accountType, asOf: req.asOf)
+            }
+            if type == .cryptoETF {
+                progress?("Custodian (SEC annual report)…")
+                if let company, let subs, let c = try? await sec.cryptoCustodian(cik: company.cik, subs: subs) {
+                    sources.append(c.source)
+                    rules.append(RuleResult(id: "K1", group: .crypto, title: "Custodian (who holds the coins)", status: .na,
+                                            actual: c.name, threshold: "a regulated, named custodian", weight: .info,
+                                            evidence: [DataPoint(key: "custodianMentions", label: "Mentions in \(c.source.name)", value: Double(c.mentions), unit: .count, source: c.source)],
+                                            detail: "The custodian the trust's latest SEC filing names as \"Custodian\". Check the prospectus for cold-storage and insurance terms."))
+                } else {
+                    rules.append(RuleResult(id: "K1", group: .crypto, title: "Custodian (who holds the coins)", status: .na,
+                                            actual: "not found in SEC filings", threshold: "check the prospectus", weight: .info))
+                }
+            }
+
             // Overlap with VOO
             let spNport: NPortReport? = ticker == "VOO" ? nport : await {
                 guard let s = try? await sec.submissions(cik: Self.spSeries.cik) else { return nil }
@@ -178,7 +200,8 @@ struct Evaluator: Sendable {
                 sources.append(bnd.source)
             }
             rules += FundRules.evaluate(.init(type: type, profile: profile, overlapWithSP: overlapSP, vooExpenseRatio: vooER,
-                                              isSPTracker: isSPTracker, perf: perf, perfVsBND: perfBND, history: history))
+                                              isSPTracker: isSPTracker, perf: perf, perfVsBND: perfBND,
+                                              isMutualFund: history.instrumentType == "MUTUALFUND", history: history))
             fundamentalsIntact = rules.filter { $0.weight != .info }.allSatisfy { $0.status != .fail }
             if type == .leveragedOrInverse {
                 rules.append(RuleResult(id: "R1", group: .redFlag, title: "Leveraged or inverse structure", status: .fail,
@@ -206,6 +229,7 @@ struct Evaluator: Sendable {
         let context = await portfolioContext(req.positions, companies: companies, fundClasses: fundClasses, asOf: req.asOf)
         rules += PortfolioRules.evaluate(ticker: ticker, type: type, isSPTracker: isSPTracker, candidate: candidateExposure, request: req,
                                          context: context, maxDrawdown: perf?.drawdown.maxDrawdown)
+        let fit = PortfolioFit.make(ticker: ticker, type: type, isSPTracker: isSPTracker, candidate: candidateExposure, request: req, context: context)
 
         // Staleness
         var stale: [String] = []
@@ -226,7 +250,7 @@ struct Evaluator: Sendable {
         return EvaluationReport(ticker: ticker, name: name, assetType: type, classificationNote: note, request: req, verdict: verdict,
                                 rules: rules, performance: perf, performanceVsBND: perfBND, priceAction: priceAction, dividends: dividends,
                                 feeDrag: feeDrag, fundamentals: fundamentals, fund: fund, overlapWithSP: overlapSP, overlapCommonWithSP: commonSP,
-                                portfolio: context, checks: checks, dataPoints: points, sources: uniqueSources, missing: missing, stale: stale,
+                                portfolio: context, portfolioFit: fit, checks: checks, dataPoints: points, sources: uniqueSources, missing: missing, stale: stale,
                                 generatedAt: .now)
     }
 
@@ -262,28 +286,39 @@ struct Evaluator: Sendable {
             if value <= 0 { unresolved.append("\(t) (no value)"); continue }
             valued.append((p, value, h)); total += value
         }
+        var holdings: [PortfolioHolding] = []
         for (p, value, h) in valued {
             let t = p.ticker.uppercased()
             let inst = h?.instrumentType ?? ""
-            if PortfolioRules.spTrackers.contains(t) { sp += value }
-            if inst == "CRYPTOCURRENCY" || t.hasSuffix("-USD") || Classifier.looksLeveraged(h?.longName ?? "") || Classifier.looksCrypto(h?.longName ?? "") { spec += value }
+            var kind: PortfolioHolding.Kind = .unknown
+            if PortfolioRules.spTrackers.contains(t) { sp += value; kind = .spTracker }
+            let isSpec = inst == "CRYPTOCURRENCY" || t.hasSuffix("-USD") || Classifier.looksLeveraged(h?.longName ?? "") || Classifier.looksCrypto(h?.longName ?? "")
+            if isSpec { spec += value; kind = .speculation }
             if inst == "EQUITY", let c = companies[t] {
-                stocks.insert(t)
+                stocks.insert(t); if kind == .unknown { kind = .stock }
                 exposure.add(.single(name: c.title), scale: value / total)
             } else if let fc = fundClasses[t], let subs = try? await sec.submissions(cik: fc.cik),
                       let np = try? await sec.nport(cik: fc.cik, seriesId: fc.seriesId, subs: subs) {
+                if kind == .unknown { kind = .fund }
                 exposure.add(.of(holdings: np.holdings), scale: value / total)
             } else {
+                if kind == .unknown, inst == "ETF" || inst == "MUTUALFUND" { kind = .fund }
                 unresolved.append(t)
             }
+            if kind == .fund, Classifier.looksBond(h?.longName ?? "") || ThreeFund.bondIndexFunds.contains(t) { kind = .bondFund }
+            holdings.append(PortfolioHolding(ticker: t, value: value, kind: kind))
         }
-        return PortfolioContext(totalValue: total, spValue: sp, stockTickers: stocks, speculationValue: spec, exposure: exposure, unresolved: unresolved)
+        return PortfolioContext(totalValue: total, spValue: sp, stockTickers: stocks, speculationValue: spec, exposure: exposure,
+                                unresolved: unresolved, holdings: holdings)
     }
 }
 
 nonisolated enum Classifier {
     static func looksLeveraged(_ name: String) -> Bool {
         name.range(of: #"(?i)\b(2x|3x|-1x|-2x|-3x|ultra|ultrapro|inverse|leveraged|bear|daily (bull|bear))\b"#, options: .regularExpression) != nil
+    }
+    static func looksBond(_ name: String) -> Bool {
+        name.range(of: #"(?i)\b(bond|treasury|aggregate|fixed income|municipal|muni|t-bill)\b"#, options: .regularExpression) != nil
     }
     static func looksCrypto(_ name: String) -> Bool {
         name.range(of: #"(?i)\b(bitcoin|ether|ethereum|solana|crypto|xrp)\b"#, options: .regularExpression) != nil

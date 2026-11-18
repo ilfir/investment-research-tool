@@ -80,7 +80,7 @@ struct SourceBadge: View {
     var source: SourceRef
     @Environment(\.openURL) private var openURL
     var body: some View {
-        (Text(Image(systemName: "info.circle")) + Text(" \(source.name.replacingOccurrences(of: " (unofficial)", with: "")) · \(Fmt.date(source.asOf))"))
+        Text("\(Image(systemName: "info.circle")) \(source.name.replacingOccurrences(of: " (unofficial)", with: "")) · \(Fmt.date(source.asOf))")
             .font(.caption).foregroundStyle(.secondary)
             .onTapGesture { if let u = URL(string: source.url) { openURL(u) } }
             .onHover { inside in if inside { NSCursor.pointingHand.push() } else { NSCursor.pop() } }

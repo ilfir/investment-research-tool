@@ -206,6 +206,7 @@ nonisolated enum FundRules {
         var isSPTracker: Bool
         var perf: PerformanceReport?
         var perfVsBND: PerformanceReport?
+        var isMutualFund = false           // Yahoo folds capital gains into mutual-fund "dividends"
         var history: PriceHistory?
     }
 
@@ -295,7 +296,39 @@ nonisolated enum FundRules {
         out.append(RuleResult(id: "F14", group: .fund, title: "Domicile / withholding, ACC vs DIST, trading currency", status: .na,
                               actual: "n/a (US-domiciled, USD, US funds distribute)", threshold: "—", weight: .info))
 
+        out += redFlags(i)
         if i.type == .bondFund { out += bond(i) }
+        return out
+    }
+
+    /// Checklist section F items that need their own evidence (the rest map to F1, F5–F8, F11, F14, P4, R1).
+    static func redFlags(_ i: Inputs) -> [RuleResult] {
+        var out: [RuleResult] = []
+        // Synthetic replication: an index tracked with swaps instead of holding the securities (N-PORT asset categories).
+        if let np = i.profile.nport, !np.holdings.isEmpty {
+            let derivCats: Set<String> = ["DE", "DFE", "DIR", "DCR", "DCO", "DO"]
+            let derivs = np.holdings.filter { derivCats.contains($0.assetCategory) || $0.title.localizedCaseInsensitiveContains("swap") }
+            let swaps = derivs.filter { $0.title.localizedCaseInsensitiveContains("swap") || $0.assetCategory == "DE" }
+            let gross = derivs.map { abs($0.weight) }.reduce(0, +)
+            let direct = np.holdings.filter { !derivCats.contains($0.assetCategory) }.map(\.weight).reduce(0, +)
+            let synthetic = swaps.count > 0 && direct < 0.80
+            out.append(RuleResult(id: "R2", group: .redFlag, title: "Synthetic replication (swaps)", status: synthetic ? .warn : .pass,
+                                  actual: synthetic ? "\(swaps.count) swap/derivative positions; only \(Fmt.pct(direct, digits: 0)) held directly"
+                                                    : "holds the securities directly (\(Fmt.pct(gross, digits: 1)) in derivatives)",
+                                  threshold: "physical holdings; read the prospectus before buying a swap-based fund", weight: .info,
+                                  detail: "From SEC N-PORT holdings as of \(np.periodDate) (asset categories DE/DIR/DFE/DCR/DCO/DO = derivatives)."))
+        } else {
+            out.append(RuleResult(id: "R2", group: .redFlag, title: "Synthetic replication (swaps)", status: .na,
+                                  actual: "no N-PORT holdings to check", threshold: "check the prospectus", weight: .info))
+        }
+        // Yield you can't trace to dividends actually paid (possible return of capital).
+        if !i.isMutualFund, let q = i.profile.advertisedYield, let paid = i.profile.distributionYield {
+            let gap = q.value - paid.value
+            out.append(RuleResult(id: "R3", group: .redFlag, title: "Yield traceable to dividends paid", status: abs(gap) > 0.01 ? .warn : .pass,
+                                  actual: "quoted \(Fmt.pct(q.value, digits: 2)) vs \(Fmt.pct(paid.value, digits: 2)) actually paid (last 12 months)",
+                                  threshold: "within 1 percentage point", weight: .info, evidence: [q, paid],
+                                  detail: abs(gap) > 0.01 ? "A quoted yield well above what was paid can include return of capital or a one-off; check the fund's 19a-1 notices." : nil))
+        }
         return out
     }
 
@@ -323,7 +356,50 @@ nonisolated enum FundRules {
     }
 }
 
+// MARK: - Nash's "no-research" three-fund portfolio (reference only; never changes the verdict)
+
+nonisolated enum ThreeFund {
+    struct Mix: Sendable, Hashable { var band: String; var sp: Double; var nasdaq: Double; var bonds: Double }
+    /// From the notes ("learn to evaluate stocks like a pro"). The bands overlap at 30/40/50 in the source;
+    /// read as: up to 30, 31–39, 40–49, 50–59, 60+ (so 50 and 60 start new bands, like the S&P floor).
+    static let table: [Mix] = [
+        Mix(band: "Up to 30", sp: 0.45, nasdaq: 0.45, bonds: 0.10),
+        Mix(band: "31–39", sp: 0.40, nasdaq: 0.40, bonds: 0.20),
+        Mix(band: "40–49", sp: 0.60, nasdaq: 0.20, bonds: 0.20),
+        Mix(band: "50–59", sp: 0.25, nasdaq: 0.25, bonds: 0.50),
+        Mix(band: "60+", sp: 0.30, nasdaq: 0.10, bonds: 0.60),
+    ]
+    static func reference(age: Int?) -> Mix? {
+        guard let age else { return nil }
+        switch age { case ...30: return table[0]; case 31...39: return table[1]; case 40...49: return table[2]; case 50...59: return table[3]; default: return table[4] }
+    }
+    static let nasdaqTrackers: Set<String> = ["QQQ", "QQQM", "ONEQ", "FNCMX"]
+    static let bondIndexFunds: Set<String> = ["BND", "AGG", "SCHZ", "IUSB", "FBND", "FXNAX", "VBTLX", "VBMFX", "SPAB", "BIV"]
+
+    enum Sleeve: String, CaseIterable, Sendable { case sp = "S&P 500", nasdaq = "Nasdaq", bonds = "Bonds", other = "Everything else" }
+    static func sleeve(ticker: String, kind: PortfolioHolding.Kind) -> Sleeve {
+        let t = ticker.uppercased()
+        if kind == .spTracker || PortfolioRules.spTrackers.contains(t) { return .sp }
+        if nasdaqTrackers.contains(t) { return .nasdaq }
+        if kind == .bondFund || bondIndexFunds.contains(t) { return .bonds }
+        return .other
+    }
+    /// Your mix (after this buy) in the same four sleeves.
+    static func actual(_ fit: PortfolioFit) -> [Sleeve: Double] {
+        var m: [Sleeve: Double] = [:]
+        for a in fit.allocationAfter { m[sleeve(ticker: a.ticker, kind: a.kind), default: 0] += a.weight }
+        return m
+    }
+}
+
 // MARK: - Portfolio fit
+
+nonisolated struct PortfolioHolding: Sendable, Hashable {
+    enum Kind: String, Sendable { case spTracker = "S&P 500 tracker", stock = "Stock", fund = "Fund", bondFund = "Bond fund", speculation = "Speculation", unknown = "Unclassified" }
+    var ticker: String
+    var value: Double
+    var kind: Kind
+}
 
 nonisolated struct PortfolioContext: Sendable {
     var totalValue: Double
@@ -332,6 +408,47 @@ nonisolated struct PortfolioContext: Sendable {
     var speculationValue: Double
     var exposure: Exposure
     var unresolved: [String]
+    var holdings: [PortfolioHolding] = []
+}
+
+/// Numbers for the "Fit with your portfolio" card: what your portfolio looks like after this buy.
+nonisolated struct PortfolioFit: Sendable {
+    var totalBefore: Double
+    var planned: Double
+    var spNow: Double, spAfter: Double, floor: Double
+    var stocksAfter: Int
+    var speculationAfter: Double
+    var overlap: Double?                                  // candidate vs what you already own
+    var common: [(name: String, a: Double, b: Double)]    // a = weight in this ticker, b = weight in your portfolio
+    var allocationAfter: [(ticker: String, weight: Double, kind: PortfolioHolding.Kind, isCandidate: Bool)]
+    var role: HoldingRole?
+    var age: Int?
+
+    static func make(ticker: String, type: AssetType, isSPTracker: Bool, candidate: Exposure?, request: EvaluationRequest,
+                     context c: PortfolioContext?) -> PortfolioFit? {
+        let prof = request.profile, planned = prof.plannedAmount ?? 0
+        guard let c, c.totalValue + planned > 0 else { return nil }
+        let t = ticker.uppercased(), total = c.totalValue + planned
+        let isSpec = type.isSpeculation || prof.role == .speculation
+        var stocks = c.stockTickers; if type == .stock { stocks.insert(t) }
+        let kind: PortfolioHolding.Kind = isSPTracker ? .spTracker : (isSpec ? .speculation : (type == .stock ? .stock : (type == .bondFund ? .bondFund : (type.isFund ? .fund : .unknown))))
+        // Merge positions by ticker (several accounts) and add the planned amount to this ticker.
+        var merged: [String: (Double, PortfolioHolding.Kind)] = [:]
+        for h in c.holdings { merged[h.ticker, default: (0, h.kind)].0 += h.value }
+        if planned > 0 || merged[t] != nil { merged[t, default: (0, kind)].0 += planned }
+        let alloc = merged.map { (ticker: $0.key, weight: $0.value.0 / total, kind: $0.value.1, isCandidate: $0.key == t) }
+            .sorted { $0.weight > $1.weight }
+        var ov: Double?, common: [(name: String, a: Double, b: Double)] = []
+        if let cand = candidate, !c.exposure.weights.isEmpty {
+            ov = OverlapCalc.overlap(cand, c.exposure.normalised())
+            common = OverlapCalc.common(cand, c.exposure.normalised(), top: 8)
+        }
+        return PortfolioFit(totalBefore: c.totalValue, planned: planned,
+                            spNow: c.spValue / max(c.totalValue, 1), spAfter: (c.spValue + (isSPTracker ? planned : 0)) / total,
+                            floor: PortfolioRules.spFloor(age: prof.age), stocksAfter: stocks.count,
+                            speculationAfter: (c.speculationValue + (isSpec ? planned : 0)) / total,
+                            overlap: ov, common: common, allocationAfter: alloc, role: prof.role, age: prof.age)
+    }
 }
 
 nonisolated enum PortfolioRules {
@@ -438,6 +555,57 @@ nonisolated enum PriceRules {
             else { msg = "normal DCA" }
             out.append(RuleResult(id: "A2", group: .price, title: "Down from 52-week high", status: pa.isDown ? .warn : .pass,
                                   actual: "\(Fmt.pct(d)) → \(msg)", threshold: "≥ 15% down triggers the dip rule", weight: .info))
+        }
+        return out
+    }
+}
+
+// MARK: - Mutual-fund extras (manager tenure, tax cost)
+
+nonisolated enum MutualFundRules {
+    /// Start year of the longest-serving manager: Yahoo's `startdate`, else "managed since <Month> YYYY" in the bio.
+    static func managerStart(_ m: [String: Any]?) -> (year: Int, who: String?)? {
+        guard let m else { return nil }
+        let name = m.str("managerName").flatMap { $0.isEmpty ? nil : $0 }
+        var years: [Int] = []
+        if let t = m.dict("startdate")?.num("raw"), t > 0 { years.append(Calendar.utc.component(.year, from: Date(timeIntervalSince1970: t))) }
+        var who = name
+        if let bio = m.str("managerBio"),
+           let r = bio.range(of: #"(?i)(managed|manager of)[^.]{0,80}?since\s+(?:[A-Z][a-z]+\s+)?(\d{4})"#, options: .regularExpression) {
+            years += bio[r].matches(of: /(\d{4})/).compactMap { Int($0.output.1) }
+            if who == nil { who = bio.split(separator: " ").prefix(2).joined(separator: " ") }
+        }
+        return years.min().map { ($0, who) }          // the earliest start the sources mention
+    }
+
+    static func evaluate(management: [String: Any]?, managementSource: SourceRef?, history: PriceHistory, vooYield: Double?,
+                         account: AccountType?, asOf: Date) -> [RuleResult] {
+        var out: [RuleResult] = []
+        let nowYear = Calendar.utc.component(.year, from: asOf)
+        if let s = managerStart(management) {
+            let yrs = nowYear - s.year
+            out.append(RuleResult(id: "M1", group: .fund, title: "Manager tenure", status: yrs >= 5 ? .pass : (yrs >= 3 ? .na : .warn),
+                                  actual: "\(yrs) yrs (since \(s.year)\(s.who.map { ", \($0)" } ?? ""))", threshold: "≥ 5 yrs (the track record is theirs)", weight: .info,
+                                  evidence: managementSource.map { [DataPoint(key: "managerStart", label: "Manager start year", value: Double(s.year), unit: .count, source: $0)] } ?? [],
+                                  detail: "One source only (Yahoo fund profile, longest-serving manager named there); confirm in the prospectus under \"Portfolio Managers\"."))
+        } else {
+            out.append(RuleResult(id: "M1", group: .fund, title: "Manager tenure", status: .na, actual: "not available keyless", threshold: "check the prospectus", weight: .info))
+        }
+        // Yahoo reports mutual-fund capital-gains distributions inside "dividends", so measure the total taxable payout
+        // (income + capital gains) per year and compare it with an S&P 500 index fund's dividend yield.
+        let d = DividendInfo.of(history)
+        let full = d.years.filter { !$0.partial && $0.year >= nowYear - 5 && $0.yield != nil }
+        if !full.isEmpty {
+            let avg = full.map { $0.yield! }.reduce(0, +) / Double(full.count)
+            let extra = vooYield.map { avg - $0 }
+            let sheltered = account.map { [.traditionalIRA, .rothIRA, .k401].contains($0) } ?? false
+            let bad = (extra ?? 0) > 0.01 && !sheltered
+            out.append(RuleResult(id: "M2", group: .costs, title: "Taxable distributions (income + capital gains)", status: bad ? .warn : .pass,
+                                  actual: "\(Fmt.pct(avg, digits: 1)) of NAV per year (avg \(full.first!.year)–\(full.last!.year))" +
+                                          (vooYield.map { " vs VOO's \(Fmt.pct($0, digits: 1)) dividend yield" } ?? ""),
+                                  threshold: sheltered ? "doesn't matter in your \(account!.rawValue)" : "≤ 1 point above an S&P 500 index fund (taxable account)", weight: .info,
+                                  evidence: [DataPoint(key: "distYield5y", label: "Distributions, avg % of NAV (5 yrs)", value: avg, unit: .percent, source: history.source)],
+                                  detail: "Mutual funds pass realised capital gains to you each year, and you're taxed on them even if you reinvest. Yahoo combines them with income dividends, so this is the total payout. ETFs and index funds rarely distribute gains."))
         }
         return out
     }

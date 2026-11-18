@@ -89,7 +89,10 @@ nonisolated enum MarkdownReport {
         if let d = r.dividends, !d.byYear.isEmpty {
             line(); line("## Dividends")
             line("Trailing 12-month yield: \(d.trailing12mYield.map { Fmt.pct($0, digits: 2) } ?? "n/a") · payments in last 12m: \(d.paymentsPerYear.map(String.init) ?? "n/a")")
-            line("By year: " + d.byYear.suffix(10).map { "\($0.year): $\(String(format: "%.2f", $0.amount))" }.joined(separator: ", "))
+            line("5-yr dividend growth: \(d.growth(years: 5).map { Fmt.pct($0) } ?? "n/a")/yr · raised in \(d.raises(lastYears: 10).map { "\($0.raised) of the last \($0.of) complete years" } ?? "n/a")")
+            line("By year (yield = dividends ÷ average price): " + d.years.suffix(10).map {
+                "\($0.year)\($0.partial ? "*" : ""): $\(String(format: "%.2f", $0.amount))\($0.yield.map { " (\(Fmt.pct($0, digits: 2)))" } ?? "")"
+            }.joined(separator: ", ") + " (* part-year)")
         }
 
         line(); line("## Data quality")
