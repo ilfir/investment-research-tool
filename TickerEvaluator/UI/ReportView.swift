@@ -40,7 +40,7 @@ struct ReportScreen: View {
                 ContentUnavailableView("Enter a US ticker", systemImage: "chart.line.uptrend.xyaxis",
                                        description: Text("Stocks, ETFs, mutual funds, bond funds and crypto are compared against the S&P 500 total return."))
             }
-            if showOverlay { LoadingOverlay(ticker: model.ticker, step: model.progress).transition(.opacity) }
+            if showOverlay { LoadingOverlay(ticker: model.ticker, step: model.progress) { model.cancelEvaluation() }.transition(.opacity) }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
@@ -61,6 +61,8 @@ struct ReportScreen: View {
 struct LoadingOverlay: View {
     var ticker: String
     var step: String
+    var cancel: () -> Void = {}
+    @State private var slow = false
     var body: some View {
         ZStack {
             Rectangle().fill(.regularMaterial).ignoresSafeArea()
@@ -74,8 +76,12 @@ struct LoadingOverlay: View {
                 Text(step.isEmpty ? "Starting…" : step)
                     .font(.callout).foregroundStyle(.secondary).lineLimit(1).frame(width: 360)
                     .contentTransition(.opacity).animation(.easeInOut(duration: 0.15), value: step)
-                Text("Comparing against the S&P 500 total return · every number keeps its source")
-                    .font(.caption).foregroundStyle(.tertiary)
+                Text(slow ? "Taking longer than usual. A data source may be slow; you can cancel and try again."
+                          : "Comparing against the S&P 500 total return · every number keeps its source")
+                    .font(.caption).foregroundStyle(slow ? .secondary : .tertiary)
+                Button("Cancel", role: .cancel, action: cancel)
+                    .keyboardShortcut(.cancelAction).controlSize(.large)
+                    .help("Stop looking up \(ticker) (Esc). The previous report stays.")
             }
             .padding(32)
             .background(Theme.card, in: RoundedRectangle(cornerRadius: 14))
@@ -84,7 +90,8 @@ struct LoadingOverlay: View {
         }
         .contentShape(Rectangle())
         .onTapGesture {}                     // swallow clicks so the report underneath can't be used
-        .accessibilityElement(children: .combine)
+        .task { try? await Task.sleep(for: .seconds(20)); slow = true }
+        .accessibilityElement(children: .contain)
         .accessibilityLabel("Evaluating \(ticker). \(step)")
     }
 }

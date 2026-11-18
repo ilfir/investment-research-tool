@@ -12,7 +12,7 @@ A macOS app that takes a US ticker (a stock, ETF, mutual fund, bond fund or cryp
 ## How to use
 
 ### 1. Evaluate a ticker
-Type a ticker in the box at the top left (for example `VOO`, `SCHD`, `MSFT`, `BTC-USD`) and press **Return**. A panel covers the screen while data downloads, showing each step, and the report appears when it's done.
+Type a ticker in the box at the top left (for example `VOO`, `SCHD`, `MSFT`, `BTC-USD`) and press **Return**. A panel covers the screen while data downloads, showing each step, and the report appears when it's done. If it takes too long or seems stuck, click **Cancel** (or press **Esc**): the lookup stops and the previous report stays on screen.
 
 To check another ticker, just type it. Data downloaded in the last 15 minutes is reused, so switching back and forth is instant. **Fetch fresh** (⌘R) downloads everything again.
 

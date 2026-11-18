@@ -263,6 +263,22 @@ struct StoreTests {
         #expect(await s.httpCacheSize().count == 0)
     }
 
+    @MainActor @Test func cancelStopsAStuckLookup() async throws {
+        struct Stuck: Transport {                                     // a data source that never answers
+            func get(_ request: URLRequest) async throws -> (Data, Int) { try await Task.sleep(for: .seconds(60)); return (Data(), 200) }
+        }
+        let m = AppModel(store: try Store(path: ":memory:"), http: HTTPClient(transport: Stuck(), store: nil))
+        let started = Date.now
+        let run = Task { await m.evaluate("VOO") }
+        try await Task.sleep(for: .milliseconds(300))
+        #expect(m.busy)
+        m.cancelEvaluation()
+        #expect(!m.busy && m.error == nil && m.report == nil)
+        await run.value
+        #expect(Date.now.timeIntervalSince(started) < 5)              // the hung request was abandoned
+        #expect(!m.busy && m.error == nil)                             // no "Couldn't evaluate" after a cancel
+    }
+
     @Test func fixtureNamesIgnoreCrumb() {
         #expect(FixtureName.for("https://q.com/v10/x?modules=a&crumb=abc") == FixtureName.for("https://q.com/v10/x?modules=a&crumb="))
     }

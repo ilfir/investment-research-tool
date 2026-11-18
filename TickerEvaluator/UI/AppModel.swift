@@ -116,13 +116,23 @@ final class AppModel {
         judgements[report.ticker] = report.request.judgements
     }
 
+    /// The running evaluation, so Cancel can stop it.
+    @ObservationIgnored private var evalTask: Task<EvaluationReport, Error>?
+    @ObservationIgnored private var evalRun = 0
+
     /// - Parameter fresh: ignore saved downloads and fetch everything again (filed documents excepted).
     func evaluate(_ t: String? = nil, fresh: Bool = false) async {
         let sym = (t ?? ticker).uppercased().trimmingCharacters(in: .whitespaces)
         guard !sym.isEmpty, let http else { return }
-        if fresh || reuseMinutes == 0 { await http.fetchFresh(); prices = [:]; await refreshPrices() }
+        evalTask?.cancel()
+        evalRun += 1; let run = evalRun
         ticker = sym; busy = true; error = nil; progress = "Starting…"
-        defer { busy = false; progress = "" }
+        defer { if run == evalRun { busy = false; progress = ""; evalTask = nil } }
+        if fresh || reuseMinutes == 0 {
+            progress = "Clearing saved downloads…"
+            await http.fetchFresh(); prices = [:]; await refreshPrices()
+            guard run == evalRun else { return }
+        }
         if judgements[sym] == nil, let store, let raw = await store.setting("judgement.\(sym)"),
            let j = try? JSONDecoder().decode(JudgementAnswers.self, from: Data(raw.utf8)) {
             judgements[sym] = j
@@ -130,13 +140,30 @@ final class AppModel {
         var req = EvaluationRequest(ticker: sym, profile: profile, judgements: judgements[sym] ?? .init())
         if positions.isEmpty, let store { positions = await store.positions() }   // in case startup load hasn't finished
         req.positions = positions
-        do {
-            report = try await Evaluator(http: http, store: store).evaluate(req) { [weak self] msg in
-                Task { @MainActor in self?.progress = msg }
+        let store = self.store
+        let task = Task { [weak self] in
+            try await Evaluator(http: http, store: store).evaluate(req) { msg in
+                Task { @MainActor in if self?.evalRun == run { self?.progress = msg } }
             }
+        }
+        evalTask = task
+        do {
+            let r = try await task.value
+            guard run == evalRun, !task.isCancelled else { return }   // cancelled or superseded: drop the late result
+            report = r
         } catch {
+            guard run == evalRun, !task.isCancelled else { return }
             self.error = error.localizedDescription
         }
+    }
+
+    /// Stops the evaluation in progress. The previous report (if any) stays on screen.
+    func cancelEvaluation() {
+        guard busy else { return }
+        evalTask?.cancel(); evalTask = nil
+        evalRun += 1
+        busy = false; progress = ""
+        if let r = report { ticker = r.ticker }
     }
 
     /// Your answer to a judgement step (nil = clear). Re-scores using cached data.

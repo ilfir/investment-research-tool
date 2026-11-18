@@ -104,6 +104,7 @@ actor HTTPClient {
 
     /// - Parameter maxAge: how long a cached copy is acceptable (0 = always refetch).
     func get(_ url: String, maxAge: TimeInterval, cacheKey: String? = nil) async throws -> Response {
+        try Task.checkCancellation()                  // Cancel in the app stops the evaluation at the next request
         let key = cacheKey ?? url
         if maxAge > 0, let store, let (data, at) = await store.cached(url: key, maxAge: effectiveMaxAge(maxAge)) {
             return Response(data: data, fetchedAt: at, url: url, fromCache: true)
