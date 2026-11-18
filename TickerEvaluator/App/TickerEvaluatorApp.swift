@@ -7,5 +7,6 @@ struct TickerEvaluatorApp: App {
             ReportScreen(model: model)
                 .frame(minWidth: 980, minHeight: 700)
         }
+        Settings { SettingsView(model: model) }
     }
 }

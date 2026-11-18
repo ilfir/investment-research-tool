@@ -75,6 +75,23 @@ actor HTTPClient {
     let store: Store?
     var secContact: String
     private var lastSECRequest = Date.distantPast
+    /// "Fetch fresh": cached copies saved before this moment are ignored (except permanent filing documents).
+    /// Anything fetched after it is reused, so one fresh run doesn't download the same URL twice.
+    private(set) var freshSince: Date?
+    static let permanentAge: TimeInterval = 300 * 24 * 3600
+
+    /// How long prices / fundamentals / filing lists (anything requested with `Cache.session`) are reused. Set in Settings.
+    private(set) var sessionReuse: TimeInterval = Cache.session
+
+    func fetchFresh(from date: Date = .now) { freshSince = date }
+    func setSessionReuse(_ seconds: TimeInterval) { sessionReuse = max(1, seconds) }
+    func setSECContact(_ contact: String) { secContact = contact }
+
+    private func effectiveMaxAge(_ maxAge: TimeInterval) -> TimeInterval {
+        let m = maxAge == Cache.session ? sessionReuse : maxAge
+        guard let f = freshSince, m < Self.permanentAge else { return m }
+        return min(m, max(0.001, Date.now.timeIntervalSince(f)))
+    }
     private let secMinInterval: TimeInterval = 0.15   // ≈ 6–7 req/s, under SEC's 10 req/s limit
 
     init(transport: Transport = LiveTransport(), store: Store?, secContact: String = HTTPClient.defaultSECContact) {
@@ -88,7 +105,7 @@ actor HTTPClient {
     /// - Parameter maxAge: how long a cached copy is acceptable (0 = always refetch).
     func get(_ url: String, maxAge: TimeInterval, cacheKey: String? = nil) async throws -> Response {
         let key = cacheKey ?? url
-        if maxAge > 0, let store, let (data, at) = await store.cached(url: key, maxAge: maxAge) {
+        if maxAge > 0, let store, let (data, at) = await store.cached(url: key, maxAge: effectiveMaxAge(maxAge)) {
             return Response(data: data, fetchedAt: at, url: url, fromCache: true)
         }
         guard let u = URL(string: url) else { throw EngineError.parse("bad URL \(url)") }
@@ -114,7 +131,7 @@ actor HTTPClient {
     }
 
     func cachedResponse(_ key: String, url: String, maxAge: TimeInterval) async -> Response? {
-        guard let store, let (data, at) = await store.cached(url: key, maxAge: maxAge) else { return nil }
+        guard let store, let (data, at) = await store.cached(url: key, maxAge: effectiveMaxAge(maxAge)) else { return nil }
         return Response(data: data, fetchedAt: at, url: url, fromCache: true)
     }
 
@@ -137,8 +154,11 @@ nonisolated extension Dictionary where Key == String, Value == Any {
 
 enum Cache {
     static let hour: TimeInterval = 3600
-    static let prices: TimeInterval = 6 * hour
-    static let fundamentals: TimeInterval = 24 * hour
+    /// Prices, fundamentals and filing lists are reused for 15 minutes by default (adjustable in Settings) so you can
+    /// switch between tickers quickly; after that they're downloaded again (changed 2026-11-17 from 6 h / 24 h).
+    static let session: TimeInterval = 15 * 60
+    static let prices: TimeInterval = session
+    static let fundamentals: TimeInterval = session
     static let filings: TimeInterval = 7 * 24 * hour
     static let tickerMaps: TimeInterval = 7 * 24 * hour
 }

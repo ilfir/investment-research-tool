@@ -3,6 +3,7 @@ import SwiftUI
 /// Screen 1: ticker input bar + the report.
 struct ReportScreen: View {
     @Bindable var model: AppModel
+    @State private var showOverlay = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -12,7 +13,9 @@ struct ReportScreen: View {
                     .onSubmit { Task { await model.evaluate() } }
                 Button("Evaluate") { Task { await model.evaluate() } }
                     .keyboardShortcut(.defaultAction).disabled(model.busy || model.ticker.isEmpty)
-                if model.busy { ProgressView().controlSize(.small); Text(model.progress).font(.callout).foregroundStyle(.secondary).lineLimit(1) }
+                Button { Task { await model.evaluate(fresh: true) } } label: { Label("Fetch fresh", systemImage: "arrow.clockwise") }
+                    .keyboardShortcut("r", modifiers: .command).disabled(model.busy || model.ticker.isEmpty)
+                    .help("Download everything again instead of reusing what was downloaded in the last 15 minutes (⌘R)")
                 Spacer()
                 Menu {
                     Button("PDF…") { if let r = model.report { Exporter.save(r, pdf: true) } }
@@ -26,7 +29,9 @@ struct ReportScreen: View {
                 ProfileSummaryButton(model: model)
             }
             .padding(.horizontal, 20).padding(.vertical, 12)
+            .disabled(model.busy)
             Divider()
+            ZStack {
             if let e = model.error {
                 ContentUnavailableView("Couldn't evaluate \(model.ticker)", systemImage: "exclamationmark.triangle", description: Text(e))
             } else if let r = model.report {
@@ -35,11 +40,52 @@ struct ReportScreen: View {
                 ContentUnavailableView("Enter a US ticker", systemImage: "chart.line.uptrend.xyaxis",
                                        description: Text("Stocks, ETFs, mutual funds, bond funds and crypto are compared against the S&P 500 total return."))
             }
+            if showOverlay { LoadingOverlay(ticker: model.ticker, step: model.progress).transition(.opacity) }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+        .animation(.easeInOut(duration: 0.2), value: showOverlay)
+        // Shown only if loading takes > 0.25 s, so quick re-scores (profile edits) don't flash.
+        .task(id: model.busy) {
+            if model.busy { try? await Task.sleep(for: .milliseconds(250)); if model.busy { showOverlay = true } }
+            else { showOverlay = false }
         }
         .sheet(isPresented: $model.showPositions) { PositionsView(model: model) }
         .inspector(isPresented: $model.showProfile) {
             ProfileView(model: model).inspectorColumnWidth(min: 300, ideal: 340, max: 420)
         }
+    }
+}
+
+/// Covers the report while a ticker is being fetched: blocks clicks and shows the current step.
+struct LoadingOverlay: View {
+    var ticker: String
+    var step: String
+    var body: some View {
+        ZStack {
+            Rectangle().fill(.regularMaterial).ignoresSafeArea()
+            VStack(spacing: 14) {
+                Image(systemName: "chart.line.uptrend.xyaxis")
+                    .font(.system(size: 44, weight: .medium)).foregroundStyle(Theme.asset)
+                    .symbolEffect(.variableColor.iterative.reversing, options: .repeating)
+                    .symbolEffect(.pulse, options: .repeating)
+                Text("Evaluating \(ticker)").font(.title2.weight(.semibold))
+                ProgressView().progressViewStyle(.linear).frame(width: 260)
+                Text(step.isEmpty ? "Starting…" : step)
+                    .font(.callout).foregroundStyle(.secondary).lineLimit(1).frame(width: 360)
+                    .contentTransition(.opacity).animation(.easeInOut(duration: 0.15), value: step)
+                Text("Comparing against the S&P 500 total return · every number keeps its source")
+                    .font(.caption).foregroundStyle(.tertiary)
+            }
+            .padding(32)
+            .background(Theme.card, in: RoundedRectangle(cornerRadius: 14))
+            .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(Theme.grid, lineWidth: 0.5))
+            .shadow(color: .black.opacity(0.12), radius: 18, y: 6)
+        }
+        .contentShape(Rectangle())
+        .onTapGesture {}                     // swallow clicks so the report underneath can't be used
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Evaluating \(ticker). \(step)")
     }
 }
 
@@ -83,6 +129,12 @@ struct ReportContent: View {
 // MARK: Verdict
 
 struct VerdictBanner: View {
+    /// When this ticker's prices were downloaded (saved copies are reused for up to 15 minutes).
+    private var downloaded: String {
+        guard let at = r.sources.filter({ $0.url.contains("/v8/finance/chart/") && $0.url.contains(r.ticker) }).map(\.fetchedAt).min() else { return "" }
+        let f = RelativeDateTimeFormatter(); f.unitsStyle = .full
+        return Date.now.timeIntervalSince(at) < 60 ? " · prices just downloaded" : " · prices downloaded \(f.localizedString(for: at, relativeTo: .now))"
+    }
     var r: EvaluationReport
     var body: some View {
         let v = r.verdict.verdict, c = Theme.verdictColor(v)
@@ -91,7 +143,7 @@ struct VerdictBanner: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text("\(r.ticker) · \(r.name)").font(.headline).foregroundStyle(.secondary)
                 Text(v.rawValue).font(.system(size: 30, weight: .bold))
-                Text("\(r.assetType.rawValue) · as of \(Fmt.date(r.performance?.end ?? r.generatedAt))").font(.callout).foregroundStyle(.secondary)
+                Text("\(r.assetType.rawValue) · as of \(Fmt.date(r.performance?.end ?? r.generatedAt))\(downloaded)").font(.callout).foregroundStyle(.secondary)
             }
             Spacer()
             VStack(alignment: .trailing, spacing: 4) {

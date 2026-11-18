@@ -6,7 +6,7 @@ import AppKit
 ///   TickerEvaluator                          → the app window
 ///   TickerEvaluator --evaluate VOO [options] → prints a Markdown report to stdout (engine check, no UI)
 ///     --age N  --amount USD  --record DIR (save responses as test fixtures)  --replay DIR (offline from fixtures)
-///     --no-cache  --asof YYYY-MM-DD  --snapshot out.png [--dark] (render the report screen to an image)  --pdf out.pdf
+///     --no-cache  --fresh (ignore saved downloads, keep saving)  --asof YYYY-MM-DD  --snapshot out.png [--dark] (render the report screen to an image)  --pdf out.pdf
 @main
 enum Entry {
     static func main() {
@@ -36,6 +36,13 @@ enum CLI {
             let useCache = !args.contains("--no-cache") && value(args, "--replay") == nil && value(args, "--record") == nil
             let store = useCache ? try Store() : nil
             let http = HTTPClient(transport: transport, store: store)
+            if let store {                                     // same Settings as the app (reuse time, SEC contact)
+                if let m = await store.setting(AppModel.reuseKey).flatMap(Int.init) {
+                    if m == 0 { await http.fetchFresh() } else { await http.setSessionReuse(TimeInterval(m * 60)) }
+                }
+                if let c = await store.setting(AppModel.secContactKey), !c.isEmpty { await http.setSECContact(c) }
+            }
+            if args.contains("--fresh") { await http.fetchFresh() }
             var req = EvaluationRequest(ticker: ticker)
             if let a = value(args, "--age").flatMap(Int.init) { req.profile.age = a }
             if let a = value(args, "--amount").flatMap(Double.init) { req.profile.plannedAmount = a }

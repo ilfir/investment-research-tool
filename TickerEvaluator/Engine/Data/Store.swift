@@ -104,6 +104,15 @@ actor Store {
         exec("COMMIT", [])
     }
 
+    /// Deletes all saved downloads (positions, settings and your answers stay).
+    func clearHTTPCache() { exec("DELETE FROM http_cache", []); exec("VACUUM", []) }
+
+    func httpCacheSize() -> (count: Int, bytes: Int) {
+        query("SELECT COUNT(*), COALESCE(SUM(LENGTH(body)),0) FROM http_cache", []) { st in
+            (Int(sqlite3_column_int64(st, 0)), Int(sqlite3_column_int64(st, 1)))
+        }.first ?? (0, 0)
+    }
+
     // MARK: Settings
 
     func setting(_ key: String) -> String? {

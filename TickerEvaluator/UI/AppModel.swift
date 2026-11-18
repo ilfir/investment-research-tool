@@ -12,6 +12,10 @@ final class AppModel {
     var showPositions = false
     var positions: [Position] = []
     var prices: [String: Double] = [:]                    // latest close per ticker, for the Positions screen
+    /// Settings (saved in SQLite settings). 0 = always download (still reused within one evaluation).
+    var reuseMinutes = 15
+    var secContact = HTTPClient.defaultSECContact
+    static let reuseKey = "reuseMinutes", secContactKey = "secContact"
     var judgements: [String: JudgementAnswers] = [:]      // per ticker, saved in SQLite settings
     var report: EvaluationReport?
     var busy = false
@@ -27,8 +31,31 @@ final class AppModel {
     init(store: Store? = nil, http: HTTPClient? = nil) {
         self.store = store ?? (try? Store())
         self.http = http ?? HTTPClient(store: self.store)
-        Task { await loadProfile(); await loadPositions() }
+        Task { await loadSettings(); await loadProfile(); await loadPositions() }
     }
+
+    func loadSettings() async {
+        guard let store else { return }
+        if let m = await store.setting(Self.reuseKey).flatMap(Int.init) { reuseMinutes = m }
+        if let c = await store.setting(Self.secContactKey), !c.isEmpty { secContact = c }
+        await applySettings()
+    }
+
+    func saveSettings() async {
+        if let store {
+            await store.setSetting(Self.reuseKey, String(reuseMinutes))
+            await store.setSetting(Self.secContactKey, secContact)
+        }
+        await applySettings()
+    }
+
+    private func applySettings() async {
+        await http?.setSessionReuse(TimeInterval(max(reuseMinutes, 1) * 60))
+        await http?.setSECContact(secContact)
+    }
+
+    func savedDownloads() async -> (count: Int, bytes: Int) { await store?.httpCacheSize() ?? (0, 0) }
+    func clearSavedDownloads() async { await store?.clearHTTPCache(); prices = [:] }
 
     func loadPositions() async {
         guard let store else { return }
@@ -89,9 +116,11 @@ final class AppModel {
         judgements[report.ticker] = report.request.judgements
     }
 
-    func evaluate(_ t: String? = nil) async {
+    /// - Parameter fresh: ignore saved downloads and fetch everything again (filed documents excepted).
+    func evaluate(_ t: String? = nil, fresh: Bool = false) async {
         let sym = (t ?? ticker).uppercased().trimmingCharacters(in: .whitespaces)
         guard !sym.isEmpty, let http else { return }
+        if fresh || reuseMinutes == 0 { await http.fetchFresh(); prices = [:]; await refreshPrices() }
         ticker = sym; busy = true; error = nil; progress = "Starting…"
         defer { busy = false; progress = "" }
         if judgements[sym] == nil, let store, let raw = await store.setting("judgement.\(sym)"),

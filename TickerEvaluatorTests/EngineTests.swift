@@ -226,6 +226,30 @@ struct StoreTests {
         #expect(await s.cached(url: "u", maxAge: 10_000) != nil)
     }
 
+    @Test func fetchFreshSkipsOlderCopiesOnce() async throws {
+        final class Counting: Transport, @unchecked Sendable {
+            var calls = 0
+            func get(_ request: URLRequest) async throws -> (Data, Int) { calls += 1; return (Data("new".utf8), 200) }
+        }
+        let s = try Store(path: ":memory:"), t = Counting()
+        let url = "https://example.test/prices"
+        await s.putCache(url: url, body: Data("old".utf8), fetchedAt: Date(timeIntervalSinceNow: -60))
+        let http = HTTPClient(transport: t, store: s)
+        #expect(try await http.get(url, maxAge: Cache.prices).fromCache)              // within 15 min → reused
+        await http.fetchFresh()
+        let r = try await http.get(url, maxAge: Cache.prices)
+        #expect(!r.fromCache && String(decoding: r.data, as: UTF8.self) == "new" && t.calls == 1)
+        #expect(try await http.get(url, maxAge: Cache.prices).fromCache && t.calls == 1)   // fetched once per fresh run
+        #expect(Cache.prices == 15 * 60 && Cache.fundamentals == 15 * 60)
+
+        let http2 = HTTPClient(transport: t, store: s)                                // Settings: reuse for 30 s only
+        await s.putCache(url: url, body: Data("old".utf8), fetchedAt: Date(timeIntervalSinceNow: -60))
+        await http2.setSessionReuse(30)
+        #expect(try await !http2.get(url, maxAge: Cache.prices).fromCache)
+        await s.clearHTTPCache()
+        #expect(await s.httpCacheSize().count == 0)
+    }
+
     @Test func fixtureNamesIgnoreCrumb() {
         #expect(FixtureName.for("https://q.com/v10/x?modules=a&crumb=abc") == FixtureName.for("https://q.com/v10/x?modules=a&crumb="))
     }
