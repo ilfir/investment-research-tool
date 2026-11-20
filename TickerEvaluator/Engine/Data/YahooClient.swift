@@ -58,7 +58,9 @@ struct YahooClient: Sendable {
             }.sorted { $0.date < $1.date }
         }
         h.source.asOf = h.dates.last
-        guard h.dates.count > 1 else { throw EngineError.notFound("price history for \(symbol)") }
+        // A brand-new listing can have a single day of prices; downstream metrics degrade gracefully
+        // (performance needs 20+ days and reports "not enough history" otherwise).
+        guard !h.dates.isEmpty else { throw EngineError.notFound("price history for \(symbol)") }
         return h
     }
 
